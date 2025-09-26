@@ -22,11 +22,16 @@
   const isCaller = urlParams.has('call');
   const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com'; // ← без пробелов!
 
-  const config = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" }
-    ]
-  };
+const config = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    }
+  ]
+};
 
   const pc = new RTCPeerConnection(config);
   const localVideo = document.getElementById('localVideo');
@@ -143,6 +148,7 @@
 </body>
 
 </html>
+
 
 
 

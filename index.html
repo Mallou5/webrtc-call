@@ -38,7 +38,6 @@
   const remoteVideo = document.getElementById('remoteVideo');
   let iceCandidateBuffer = [];
   let hasRemoteDescription = false;
-  let isCaller = false;
 
   navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     .then(stream => {
@@ -131,6 +130,7 @@ window.createOffer = async () => {
 </body>
 
 </html>
+
 
 
 

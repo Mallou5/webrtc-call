@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WebRTC — Звонок через интернет</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 20px; }
+    video { width: 45%; height: auto; border: 1px solid #ccc; margin: 10px; }
+    button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h2>🌍 WebRTC — Видеосвязь через интернет</h2>
+  <video id="localVideo" autoplay muted playsinline></video>
+  <video id="remoteVideo" autoplay playsinline></video>
+  <br>
+  <button onclick="createOffer()">📞 Позвонить</button>
+
+  <script>
+    // 🔥 ЗАМЕНИ ЭТОТ URL НА СВОЙ С RENDER!
+    const SIGNAL_SERVER = 'wss://webrtc-signal-78yj.onrender.com/ws';
+
+    const config = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        // Опционально: добавь TURN для 100% соединения
+        // {
+        //   urls: "turn:openrelay.metered.ca:443",
+        //   username: "openrelayproject",
+        //   credential: "openrelayproject"
+        // }
+      ]
+    };
+
+    const pc = new RTCPeerConnection(config);
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    let socket = new WebSocket(SIGNAL_SERVER);
+
+    socket.onopen = () => console.log("Подключено к сигнальному серверу");
+    socket.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'offer') {
+        await pc.setRemoteDescription(msg);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.send(JSON.stringify(pc.localDescription));
+      } else if (msg.type === 'answer') {
+        await pc.setRemoteDescription(msg);
+      } else if (msg.type === 'candidate') {
+        await pc.addIceCandidate(msg.candidate);
+      }
+    };
+
+    // Камера
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(stream => {
+        localVideo.srcObject = stream;
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      })
+      .catch(err => alert("Ошибка камеры: " + err));
+
+    pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+
+    pc.onicecandidate = e => {
+      if (e.candidate) {
+        socket.send(JSON.stringify({
+          type: 'candidate',
+          candidate: e.candidate
+        }));
+      }
+    };
+
+    window.createOffer = async () => {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.send(JSON.stringify(offer));
+      console.log("Вызов отправлен!");
+    };
+  </script>
+</body>
+</html>

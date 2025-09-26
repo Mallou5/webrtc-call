@@ -17,6 +17,8 @@
   <button onclick="createOffer()">📞 Позвонить</button>
 
 <script>
+  const urlParams = new URLSearchParams(window.location.search);
+  const isCaller = urlParams.has('call');
   const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com';
 
   const config = {
@@ -113,11 +115,11 @@
   // Запуск приёма
   receiveLoop();
 
-  window.createOffer = async () => {
-    if (isCaller) {
-      alert("Вызов уже отправлен!");
-      return;
-    }
+window.createOffer = async () => {
+  if (!isCaller) {
+    alert("Ты не можешь звонить. Открой страницу с ?call");
+    return;
+  }
 
     isCaller = true;
     const offer = await pc.createOffer();
@@ -129,5 +131,6 @@
 </body>
 
 </html>
+
 
 

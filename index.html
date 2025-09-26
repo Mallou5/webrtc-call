@@ -67,40 +67,46 @@ const config = {
     iceCandidateBuffer = [];
   }
 
-  async function receiveLoop() {
-    while (true) {
-      try {
-        const res = await fetch(SIGNAL_URL + '/receive');
-        if (res.status === 200) {
-          const msg = await res.json();
+let isCallActive = false; // ← новый флаг
 
-          if (msg.type === 'offer') {
-            await pc.setRemoteDescription(msg);
-            hasRemoteDescription = true;
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            sendSignal(pc.localDescription);
-            flushIceCandidates();
-          } 
-          else if (msg.type === 'answer') {
-            await pc.setRemoteDescription(msg);
-            hasRemoteDescription = true;
-            flushIceCandidates();
-          } 
-          else if (msg.type === 'candidate') {
-            if (hasRemoteDescription) {
-              await pc.addIceCandidate(msg.candidate);
-            } else {
-              iceCandidateBuffer.push(msg.candidate);
-            }
+async function receiveLoop() {
+  while (true) {
+    try {
+      const res = await fetch(SIGNAL_URL + '/receive');
+      if (res.status === 200) {
+        const msg = await res.json();
+
+        if (msg.type === 'offer') {
+          if (isCallActive) return; // уже в звонке
+          isCallActive = true;
+          await pc.setRemoteDescription(msg);
+          hasRemoteDescription = true;
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          sendSignal(pc.localDescription);
+          flushIceCandidates();
+        } 
+        else if (msg.type === 'answer') {
+          if (isCallActive) return; // уже получил answer
+          isCallActive = true;
+          await pc.setRemoteDescription(msg);
+          hasRemoteDescription = true;
+          flushIceCandidates();
+        } 
+        else if (msg.type === 'candidate') {
+          if (hasRemoteDescription) {
+            await pc.addIceCandidate(msg.candidate);
+          } else {
+            iceCandidateBuffer.push(msg.candidate);
           }
         }
-      } catch (e) {
-        console.error("Receive error:", e);
-        await new Promise(r => setTimeout(r, 2000));
       }
+    } catch (e) {
+      console.error("Receive error:", e);
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
+}
 
   pc.onicecandidate = e => {
     if (e.candidate) {
@@ -130,24 +136,26 @@ const config = {
   };
 
   // ✅ Правильное объявление endCall (на том же уровне, что и createOffer)
-  window.endCall = () => {
-    if (localVideo.srcObject) {
-      localVideo.srcObject.getTracks().forEach(track => track.stop());
-      localVideo.srcObject = null;
-    }
-    remoteVideo.srcObject = null;
+window.endCall = () => {
+  if (localVideo.srcObject) {
+    localVideo.srcObject.getTracks().forEach(track => track.stop());
+    localVideo.srcObject = null;
+  }
+  remoteVideo.srcObject = null;
 
-    if (pc) {
-      pc.close();
-    }
+  if (pc) {
+    pc.close();
+  }
 
-    console.log("📞 Звонок завершён");
-    alert("Звонок завершён");
-  };
+  isCallActive = false; // ← сброс
+  console.log("📞 Звонок завершён");
+  alert("Звонок завершён");
+};
 </script>
 </body>
 
 </html>
+
 
 
 

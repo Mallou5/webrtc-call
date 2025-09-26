@@ -17,7 +17,6 @@
   <button onclick="createOffer()">📞 Позвонить</button>
 
 <script>
-  // URL твоего сервера на Render
   const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com';
 
   const config = {
@@ -30,7 +29,10 @@
   const localVideo = document.getElementById('localVideo');
   const remoteVideo = document.getElementById('remoteVideo');
 
-  // Получаем камеру
+  // Буфер для ICE-кандидатов (пока нет remoteDescription)
+  let iceCandidateBuffer = [];
+  let isInitiator = false; // пока не знаем роль
+
   navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     .then(stream => {
       localVideo.srcObject = stream;
@@ -40,7 +42,7 @@
 
   pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
 
-  // Отправка данных на сервер
+  // Отправка данных
   async function sendSignal(data) {
     await fetch(SIGNAL_URL + '/send', {
       method: 'POST',
@@ -49,28 +51,55 @@
     });
   }
 
-  // Приём данных (long polling)
+  // Применить буфер кандидатов
+  function flushIceCandidates() {
+    iceCandidateBuffer.forEach(async candidate => {
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch (e) {
+        console.error("Ошибка кандидата:", e);
+      }
+    });
+    iceCandidateBuffer = [];
+  }
+
+  // Приём сообщений
   async function receiveLoop() {
     while (true) {
       try {
         const res = await fetch(SIGNAL_URL + '/receive');
         if (res.status === 200) {
           const msg = await res.json();
+
           if (msg.type === 'offer') {
+            // Мы — отвечающий
+            isInitiator = false;
             await pc.setRemoteDescription(msg);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             sendSignal(pc.localDescription);
-          } else if (msg.type === 'answer') {
-            await pc.setRemoteDescription(msg);
-          } else if (msg.type === 'candidate') {
-            await pc.addIceCandidate(msg.candidate);
+            flushIceCandidates(); // применить накопленные кандидаты
+          } 
+          else if (msg.type === 'answer') {
+            // Мы — инициатор
+            if (isInitiator) {
+              await pc.setRemoteDescription(msg);
+              flushIceCandidates();
+            }
+          } 
+          else if (msg.type === 'candidate') {
+            const candidate = msg.candidate;
+            if (pc.remoteDescription) {
+              await pc.addIceCandidate(candidate);
+            } else {
+              // Буферим, пока нет remoteDescription
+              iceCandidateBuffer.push(candidate);
+            }
           }
         }
-        // Если 204 (no content) — цикл продолжится
       } catch (e) {
         console.error("Ошибка приёма:", e);
-        await new Promise(r => setTimeout(r, 2000)); // пауза при ошибке
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
   }
@@ -81,12 +110,20 @@
     }
   };
 
-  // Регистрация и запуск приёма
-  fetch(SIGNAL_URL + '/join').then(() => {
+  // Запуск
+  fetch(SIGNAL_URL + '/join').then(async () => {
+    // Первый зашедший — инициатор
+    const res = await fetch(SIGNAL_URL + '/role');
+    const { role } = await res.json();
+    isInitiator = (role === 'initiator');
     receiveLoop();
   });
 
   window.createOffer = async () => {
+    if (!isInitiator) {
+      alert("Ты не инициатор! Жди вызова.");
+      return;
+    }
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     sendSignal(offer);
@@ -96,3 +133,4 @@
 </body>
 
 </html>
+

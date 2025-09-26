@@ -20,17 +20,11 @@
 <script>
   const urlParams = new URLSearchParams(window.location.search);
   const isCaller = urlParams.has('call');
-  const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com';
+  const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com'; // ← без пробелов!
 
   const config = {
     iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      // Добавь TURN для надёжности (опционально)
-      // {
-      //   urls: "turn:openrelay.metered.ca:80",
-      //   username: "openrelayproject",
-      //   credential: "openrelayproject"
-      // }
+      { urls: "stun:stun.l.google.com:19302" }
     ]
   };
 
@@ -68,7 +62,6 @@
     iceCandidateBuffer = [];
   }
 
-  // Приём сообщений
   async function receiveLoop() {
     while (true) {
       try {
@@ -77,7 +70,6 @@
           const msg = await res.json();
 
           if (msg.type === 'offer') {
-            // Получили offer — отвечаем
             await pc.setRemoteDescription(msg);
             hasRemoteDescription = true;
             const answer = await pc.createAnswer();
@@ -86,7 +78,6 @@
             flushIceCandidates();
           } 
           else if (msg.type === 'answer') {
-            // Получили answer
             await pc.setRemoteDescription(msg);
             hasRemoteDescription = true;
             flushIceCandidates();
@@ -112,47 +103,47 @@
     }
   };
 
-  // Запуск приёма
   receiveLoop();
 
-window.createOffer = async () => {
-  if (!isCaller) {
-    alert("Ты не можешь звонить. Открой страницу с ?call\n\nПример: " + 
-          window.location.origin + window.location.pathname + "?call");
-    return;
-  }
+  // ✅ Правильное объявление createOffer
+  window.createOffer = async () => {
+    if (!isCaller) {
+      alert("Ты не можешь звонить. Открой страницу с ?call\n\nПример: " + 
+            window.location.origin + window.location.pathname + "?call");
+      return;
+    }
 
-  try {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    sendSignal(offer);
-    console.log("✅ Вызов отправлен!");
-  } catch (e) {
-    console.error("Ошибка при создании вызова:", e);
-    alert("Не удалось начать вызов: " + e.message);
-  }
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendSignal(offer);
+      console.log("✅ Вызов отправлен!");
+    } catch (e) {
+      console.error("Ошибка при создании вызова:", e);
+      alert("Не удалось начать вызов: " + e.message);
+    }
+  };
 
-window.endCall = () => {
-  // Остановить все треки (камера/микрофон)
-  if (localVideo.srcObject) {
-    localVideo.srcObject.getTracks().forEach(track => track.stop());
-    localVideo.srcObject = null;
-  }
-  remoteVideo.srcObject = null;
+  // ✅ Правильное объявление endCall (на том же уровне, что и createOffer)
+  window.endCall = () => {
+    if (localVideo.srcObject) {
+      localVideo.srcObject.getTracks().forEach(track => track.stop());
+      localVideo.srcObject = null;
+    }
+    remoteVideo.srcObject = null;
 
-  // Закрыть WebRTC-соединение
-  if (pc) {
-    pc.close();
-  }
+    if (pc) {
+      pc.close();
+    }
 
-  console.log("📞 Звонок завершён");
-  alert("Звонок завершён");
-}
-};
+    console.log("📞 Звонок завершён");
+    alert("Звонок завершён");
+  };
 </script>
 </body>
 
 </html>
+
 
 
 

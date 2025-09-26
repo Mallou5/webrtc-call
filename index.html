@@ -16,68 +16,83 @@
   <br>
   <button onclick="createOffer()">📞 Позвонить</button>
 
-  <script>
-    // 🔥 ЗАМЕНИ ЭТОТ URL НА СВОЙ С RENDER!
-    const SIGNAL_SERVER = 'wss://webrtc-signal-78yj.onrender.com/ws';
+<script>
+  // URL твоего сервера на Render
+  const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com';
 
-    const config = {
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        // Опционально: добавь TURN для 100% соединения
-        // {
-        //   urls: "turn:openrelay.metered.ca:443",
-        //   username: "openrelayproject",
-        //   credential: "openrelayproject"
-        // }
-      ]
-    };
+  const config = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" }
+    ]
+  };
 
-    const pc = new RTCPeerConnection(config);
-    const localVideo = document.getElementById('localVideo');
-    const remoteVideo = document.getElementById('remoteVideo');
+  const pc = new RTCPeerConnection(config);
+  const localVideo = document.getElementById('localVideo');
+  const remoteVideo = document.getElementById('remoteVideo');
 
-    let socket = new WebSocket(SIGNAL_SERVER);
+  // Получаем камеру
+  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then(stream => {
+      localVideo.srcObject = stream;
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    })
+    .catch(err => alert("Ошибка камеры: " + err));
 
-    socket.onopen = () => console.log("Подключено к сигнальному серверу");
-    socket.onmessage = async (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'offer') {
-        await pc.setRemoteDescription(msg);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socket.send(JSON.stringify(pc.localDescription));
-      } else if (msg.type === 'answer') {
-        await pc.setRemoteDescription(msg);
-      } else if (msg.type === 'candidate') {
-        await pc.addIceCandidate(msg.candidate);
+  pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+
+  // Отправка данных на сервер
+  async function sendSignal(data) {
+    await fetch(SIGNAL_URL + '/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+  }
+
+  // Приём данных (long polling)
+  async function receiveLoop() {
+    while (true) {
+      try {
+        const res = await fetch(SIGNAL_URL + '/receive');
+        if (res.status === 200) {
+          const msg = await res.json();
+          if (msg.type === 'offer') {
+            await pc.setRemoteDescription(msg);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            sendSignal(pc.localDescription);
+          } else if (msg.type === 'answer') {
+            await pc.setRemoteDescription(msg);
+          } else if (msg.type === 'candidate') {
+            await pc.addIceCandidate(msg.candidate);
+          }
+        }
+        // Если 204 (no content) — цикл продолжится
+      } catch (e) {
+        console.error("Ошибка приёма:", e);
+        await new Promise(r => setTimeout(r, 2000)); // пауза при ошибке
       }
-    };
+    }
+  }
 
-    // Камера
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then(stream => {
-        localVideo.srcObject = stream;
-        stream.getTracks().forEach(track => pc.addTrack(track, stream));
-      })
-      .catch(err => alert("Ошибка камеры: " + err));
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      sendSignal({ type: 'candidate', candidate: e.candidate });
+    }
+  };
 
-    pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+  // Регистрация и запуск приёма
+  fetch(SIGNAL_URL + '/join').then(() => {
+    receiveLoop();
+  });
 
-    pc.onicecandidate = e => {
-      if (e.candidate) {
-        socket.send(JSON.stringify({
-          type: 'candidate',
-          candidate: e.candidate
-        }));
-      }
-    };
-
-    window.createOffer = async () => {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.send(JSON.stringify(offer));
-      console.log("Вызов отправлен!");
-    };
-  </script>
+  window.createOffer = async () => {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    sendSignal(offer);
+    console.log("Вызов отправлен!");
+  };
+</script>
 </body>
+
 </html>

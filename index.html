@@ -15,6 +15,7 @@
   <video id="remoteVideo" autoplay playsinline></video>
   <br>
   <button onclick="createOffer()">📞 Позвонить</button>
+  <button onclick="endCall()">⏹️ Завершить</button>
 
 <script>
   const urlParams = new URLSearchParams(window.location.search);
@@ -130,11 +131,29 @@ window.createOffer = async () => {
     console.error("Ошибка при создании вызова:", e);
     alert("Не удалось начать вызов: " + e.message);
   }
+
+window.endCall = () => {
+  // Остановить все треки (камера/микрофон)
+  if (localVideo.srcObject) {
+    localVideo.srcObject.getTracks().forEach(track => track.stop());
+    localVideo.srcObject = null;
+  }
+  remoteVideo.srcObject = null;
+
+  // Закрыть WebRTC-соединение
+  if (pc) {
+    pc.close();
+  }
+
+  console.log("📞 Звонок завершён");
+  alert("Звонок завершён");
+}
 };
 </script>
 </body>
 
 </html>
+
 
 
 

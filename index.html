@@ -116,20 +116,26 @@
 
 window.createOffer = async () => {
   if (!isCaller) {
-    alert("Ты не можешь звонить. Открой страницу с ?call");
+    alert("Ты не можешь звонить. Открой страницу с ?call\n\nПример: " + 
+          window.location.origin + window.location.pathname + "?call");
     return;
   }
 
-    isCaller = true;
+  try {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     sendSignal(offer);
-    console.log("Вызов отправлен!");
-  };
+    console.log("✅ Вызов отправлен!");
+  } catch (e) {
+    console.error("Ошибка при создании вызова:", e);
+    alert("Не удалось начать вызов: " + e.message);
+  }
+};
 </script>
 </body>
 
 </html>
+
 
 
 

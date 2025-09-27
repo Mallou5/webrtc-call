@@ -20,24 +20,27 @@
 <script>
   const urlParams = new URLSearchParams(window.location.search);
   const isCaller = urlParams.has('call');
-  const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com'; // ← без пробелов!
+  const ROOM = urlParams.get('room') || 'default-room';
+  const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com'; // оставь свой домен
+  const CLIENT_ID = Math.random().toString(36).slice(2);
 
-const config = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    }
-  ]
-};
+  const config = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      }
+    ]
+  };
 
   const pc = new RTCPeerConnection(config);
   const localVideo = document.getElementById('localVideo');
   const remoteVideo = document.getElementById('remoteVideo');
   let iceCandidateBuffer = [];
   let hasRemoteDescription = false;
+  let isCallActive = false;
 
   navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     .then(stream => {
@@ -48,113 +51,116 @@ const config = {
 
   pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
 
-  async function sendSignal(data) {
-    await fetch(SIGNAL_URL + '/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
+  async function sendSignalPayload(payload) {
+    // payload must be an object — we'll add room/from
+    const msg = Object.assign({}, payload, { room: ROOM, from: CLIENT_ID });
+    try {
+      await fetch(SIGNAL_URL + '/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(msg)
+      });
+    } catch (e) {
+      console.error('Send failed', e);
+    }
   }
 
   function flushIceCandidates() {
     iceCandidateBuffer.forEach(async candidate => {
-      try {
-        await pc.addIceCandidate(candidate);
-      } catch (e) {
-        console.error("ICE candidate error:", e);
-      }
+      try { await pc.addIceCandidate(candidate); } 
+      catch (e) { console.error("ICE candidate error:", e); }
     });
     iceCandidateBuffer = [];
   }
 
-let isCallActive = false; // ← новый флаг
+  async function receiveLoop() {
+    while (true) {
+      try {
+        const res = await fetch(`${SIGNAL_URL}/receive?room=${encodeURIComponent(ROOM)}&clientId=${encodeURIComponent(CLIENT_ID)}`);
+        if (res.status === 200) {
+          const msg = await res.json();
 
-async function receiveLoop() {
-  while (true) {
-    try {
-      const res = await fetch(SIGNAL_URL + '/receive');
-      if (res.status === 200) {
-        const msg = await res.json();
-
-        if (msg.type === 'offer') {
-          if (isCallActive) return; // уже в звонке
-          isCallActive = true;
-          await pc.setRemoteDescription(msg);
-          hasRemoteDescription = true;
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendSignal(pc.localDescription);
-          flushIceCandidates();
-        } 
-        else if (msg.type === 'answer') {
-          if (isCallActive) return; // уже получил answer
-          isCallActive = true;
-          await pc.setRemoteDescription(msg);
-          hasRemoteDescription = true;
-          flushIceCandidates();
-        } 
-        else if (msg.type === 'candidate') {
-          if (hasRemoteDescription) {
-            await pc.addIceCandidate(msg.candidate);
+          if (msg.type === 'offer') {
+            if (isCallActive) continue;
+            isCallActive = true;
+            await pc.setRemoteDescription({ type: msg.type, sdp: msg.sdp });
+            hasRemoteDescription = true;
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await sendSignalPayload({ type: answer.type, sdp: answer.sdp });
+            flushIceCandidates();
+          } else if (msg.type === 'answer') {
+            if (isCallActive) continue;
+            isCallActive = true;
+            await pc.setRemoteDescription({ type: msg.type, sdp: msg.sdp });
+            hasRemoteDescription = true;
+            flushIceCandidates();
+          } else if (msg.type === 'candidate') {
+            if (hasRemoteDescription) {
+              await pc.addIceCandidate(msg.candidate);
+            } else {
+              iceCandidateBuffer.push(msg.candidate);
+            }
           } else {
-            iceCandidateBuffer.push(msg.candidate);
+            console.log('Unknown message:', msg);
           }
+        } else if (res.status === 204) {
+          // таймаут — просто продолжим цикл и снова запросим
+        } else {
+          console.warn('Receive unexpected status', res.status);
         }
+      } catch (e) {
+        console.error("Receive error:", e);
+        // небольшая пауза перед повтором
+        await new Promise(r => setTimeout(r, 1500));
       }
-    } catch (e) {
-      console.error("Receive error:", e);
-      await new Promise(r => setTimeout(r, 2000));
     }
   }
-}
 
   pc.onicecandidate = e => {
     if (e.candidate) {
-      sendSignal({ type: 'candidate', candidate: e.candidate });
+      sendSignalPayload({ type: 'candidate', candidate: e.candidate });
     }
   };
 
   receiveLoop();
 
-  // ✅ Правильное объявление createOffer
   window.createOffer = async () => {
     if (!isCaller) {
       alert("Ты не можешь звонить. Открой страницу с ?call\n\nПример: " + 
-            window.location.origin + window.location.pathname + "?call");
+            window.location.origin + window.location.pathname + `?room=${ROOM}&call`);
       return;
     }
 
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      sendSignal(offer);
-      console.log("✅ Вызов отправлен!");
+      await sendSignalPayload({ type: offer.type, sdp: offer.sdp });
+      console.log("✅ Offer sent");
     } catch (e) {
       console.error("Ошибка при создании вызова:", e);
       alert("Не удалось начать вызов: " + e.message);
     }
   };
 
-  // ✅ Правильное объявление endCall (на том же уровне, что и createOffer)
-window.endCall = () => {
-  if (localVideo.srcObject) {
-    localVideo.srcObject.getTracks().forEach(track => track.stop());
-    localVideo.srcObject = null;
-  }
-  remoteVideo.srcObject = null;
-
-  if (pc) {
-    pc.close();
-  }
-
-  isCallActive = false; // ← сброс
-  console.log("📞 Звонок завершён");
-  alert("Звонок завершён");
-};
+  window.endCall = () => {
+    if (localVideo.srcObject) {
+      localVideo.srcObject.getTracks().forEach(track => track.stop());
+      localVideo.srcObject = null;
+    }
+    remoteVideo.srcObject = null;
+    if (pc) pc.close();
+    isCallActive = false;
+    console.log("📞 Call ended");
+    alert("Звонок завершён");
+  };
 </script>
+
+  
 </body>
 
 </html>
+
 
 
 

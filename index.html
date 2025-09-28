@@ -18,32 +18,56 @@
       margin: 5px;
     }
     button {
-      margin: 10px;
-      padding: 10px 20px;
-      font-size: 16px;
+      margin: 6px;
+      padding: 8px 14px;
+      font-size: 14px;
       cursor: pointer;
     }
     #inviteBox {
       margin: 15px auto;
-      padding: 10px;
+      padding: 12px;
       border: 1px solid #ccc;
       background: #fff;
-      max-width: 500px;
-      display: none;
+      max-width: 700px;
+      display: block;
+      text-align: left;
+      border-radius: 8px;
     }
-    #inviteLink {
-      width: 100%;
+    .invite-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .invite-row input {
+      flex: 1;
       padding: 6px;
-      font-size: 14px;
+      font-size: 13px;
+    }
+    .muted {
+      color: #666;
+      font-size: 13px;
+    }
+    #qrcode {
+      margin-top: 10px;
+      text-align: center;
     }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
   <h2>WebRTC Видеозвонок</h2>
 
   <div id="inviteBox">
-    <p>Скопируй эту ссылку и отправь другу:</p>
-    <input id="inviteLink" type="text" readonly>
+    <p class="muted">Отправь эту ссылку другу или покажи QR-код. Друг откроет её и будет ждать звонка.</p>
+
+    <div class="invite-row">
+      <label style="min-width:140px;">Ссылка для участника:</label>
+      <input id="inviteLink" type="text" readonly>
+      <button onclick="copyInvite()">📋 Скопировать</button>
+    </div>
+
+    <div id="qrcode"></div>
   </div>
 
   <div>
@@ -59,21 +83,53 @@
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     let ROOM = urlParams.get('room');
+    let isCaller = urlParams.has('call');
 
-    // Если нет комнаты → генерируем новую
+    // Если нет комнаты → значит звонящий зашёл без параметров
     if (!ROOM) {
       ROOM = Math.random().toString(36).slice(2, 8);
-      const newUrl = `${window.location.origin}${window.location.pathname}?room=${ROOM}`;
-      window.history.replaceState({}, "", newUrl);
-
-      // показываем ссылку в inviteBox
-      const inviteBox = document.getElementById('inviteBox');
-      const inviteLink = document.getElementById('inviteLink');
-      inviteLink.value = newUrl;
-      inviteBox.style.display = "block";
+      const callerUrl = `${window.location.origin}${window.location.pathname}?room=${ROOM}&call`;
+      window.history.replaceState({}, "", callerUrl);
+      isCaller = true;
     }
 
-    const isCaller = urlParams.has('call');
+    // Ссылки для участника и звонящего
+    const baseRoomUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(ROOM)}`;
+    const callerUrl = `${baseRoomUrl}&call`;
+
+    // Заполняем поле и генерим QR-код для участника
+    document.getElementById('inviteLink').value = baseRoomUrl;
+    new QRCode(document.getElementById("qrcode"), {
+      text: baseRoomUrl,
+      width: 180,
+      height: 180
+    });
+
+    // Копирование в буфер
+    function copyInvite() {
+      const txt = document.getElementById('inviteLink').value;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt)
+          .then(() => { alert('Ссылка скопирована в буфер обмена'); })
+          .catch(() => { fallbackCopy(txt); });
+      } else {
+        fallbackCopy(txt);
+      }
+    }
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        alert('Ссылка скопирована в буфер обмена');
+      } catch (e) {
+        alert('Не удалось скопировать. Скопируй вручную:\n' + text);
+      }
+      document.body.removeChild(ta);
+    }
+
     const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com'; // твой сервер
     const CLIENT_ID = Math.random().toString(36).slice(2);
 
@@ -178,8 +234,7 @@
 
     window.createOffer = async () => {
       if (!isCaller) {
-        alert("Ты не можешь звонить. Открой страницу с ?call\n\nПример: " + 
-              window.location.origin + window.location.pathname + `?room=${ROOM}&call`);
+        alert("Ты не можешь звонить. Открой страницу звонящего:\n" + callerUrl);
         return;
       }
 
@@ -200,7 +255,7 @@
         localVideo.srcObject = null;
       }
       remoteVideo.srcObject = null;
-      if (pc) pc.close();
+      try { pc.close(); } catch (e) {}
       isCallActive = false;
       console.log("📞 Call ended");
       alert("Звонок завершён");

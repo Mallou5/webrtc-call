@@ -1,172 +1,210 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-  <meta charset="utf-8">
-  <title>WebRTC — Звонок через интернет</title>
+  <meta charset="UTF-8">
+  <title>WebRTC Call</title>
   <style>
-    body { font-family: sans-serif; text-align: center; margin: 20px; }
-    video { width: 45%; height: auto; border: 1px solid #ccc; margin: 10px; }
-    button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f2f2f2;
+      margin: 0;
+      padding: 20px;
+    }
+    video {
+      width: 45%;
+      border: 2px solid #333;
+      border-radius: 8px;
+      margin: 5px;
+    }
+    button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    #inviteBox {
+      margin: 15px auto;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background: #fff;
+      max-width: 500px;
+      display: none;
+    }
+    #inviteLink {
+      width: 100%;
+      padding: 6px;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
-  <h2>🌍 WebRTC — Видеосвязь через интернет</h2>
-  <video id="localVideo" autoplay muted playsinline></video>
-  <video id="remoteVideo" autoplay playsinline></video>
-  <br>
-  <button onclick="createOffer()">📞 Позвонить</button>
-  <button onclick="endCall()">⏹️ Завершить</button>
+  <h2>WebRTC Видеозвонок</h2>
 
-<script>
-  const urlParams = new URLSearchParams(window.location.search);
-  const isCaller = urlParams.has('call');
-  const ROOM = urlParams.get('room') || 'default-room';
-  const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com'; // оставь свой домен
-  const CLIENT_ID = Math.random().toString(36).slice(2);
+  <div id="inviteBox">
+    <p>Скопируй эту ссылку и отправь другу:</p>
+    <input id="inviteLink" type="text" readonly>
+  </div>
 
-  const config = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      {
-        urls: "turn:openrelay.metered.ca:80",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      }
-    ]
-  };
+  <div>
+    <video id="localVideo" autoplay muted></video>
+    <video id="remoteVideo" autoplay></video>
+  </div>
 
-  const pc = new RTCPeerConnection(config);
-  const localVideo = document.getElementById('localVideo');
-  const remoteVideo = document.getElementById('remoteVideo');
-  let iceCandidateBuffer = [];
-  let hasRemoteDescription = false;
-  let isCallActive = false;
+  <div>
+    <button onclick="createOffer()">📞 Позвонить</button>
+    <button onclick="endCall()">❌ Завершить звонок</button>
+  </div>
 
-  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-    .then(stream => {
-      localVideo.srcObject = stream;
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-    })
-    .catch(err => alert("Ошибка камеры: " + err));
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    let ROOM = urlParams.get('room');
 
-  pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+    // Если нет комнаты → генерируем новую
+    if (!ROOM) {
+      ROOM = Math.random().toString(36).slice(2, 8);
+      const newUrl = `${window.location.origin}${window.location.pathname}?room=${ROOM}`;
+      window.history.replaceState({}, "", newUrl);
 
-  async function sendSignalPayload(payload) {
-    // payload must be an object — we'll add room/from
-    const msg = Object.assign({}, payload, { room: ROOM, from: CLIENT_ID });
-    try {
-      await fetch(SIGNAL_URL + '/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(msg)
-      });
-    } catch (e) {
-      console.error('Send failed', e);
+      // показываем ссылку в inviteBox
+      const inviteBox = document.getElementById('inviteBox');
+      const inviteLink = document.getElementById('inviteLink');
+      inviteLink.value = newUrl;
+      inviteBox.style.display = "block";
     }
-  }
 
-  function flushIceCandidates() {
-    iceCandidateBuffer.forEach(async candidate => {
-      try { await pc.addIceCandidate(candidate); } 
-      catch (e) { console.error("ICE candidate error:", e); }
-    });
-    iceCandidateBuffer = [];
-  }
+    const isCaller = urlParams.has('call');
+    const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com'; // твой сервер
+    const CLIENT_ID = Math.random().toString(36).slice(2);
 
-  async function receiveLoop() {
-    while (true) {
-      try {
-        const res = await fetch(`${SIGNAL_URL}/receive?room=${encodeURIComponent(ROOM)}&clientId=${encodeURIComponent(CLIENT_ID)}`);
-        if (res.status === 200) {
-          const msg = await res.json();
-
-          if (msg.type === 'offer') {
-            if (isCallActive) continue;
-            isCallActive = true;
-            await pc.setRemoteDescription({ type: msg.type, sdp: msg.sdp });
-            hasRemoteDescription = true;
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await sendSignalPayload({ type: answer.type, sdp: answer.sdp });
-            flushIceCandidates();
-          } else if (msg.type === 'answer') {
-            if (isCallActive) continue;
-            isCallActive = true;
-            await pc.setRemoteDescription({ type: msg.type, sdp: msg.sdp });
-            hasRemoteDescription = true;
-            flushIceCandidates();
-          } else if (msg.type === 'candidate') {
-            if (hasRemoteDescription) {
-              await pc.addIceCandidate(msg.candidate);
-            } else {
-              iceCandidateBuffer.push(msg.candidate);
-            }
-          } else {
-            console.log('Unknown message:', msg);
-          }
-        } else if (res.status === 204) {
-          // таймаут — просто продолжим цикл и снова запросим
-        } else {
-          console.warn('Receive unexpected status', res.status);
+    const config = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
         }
+      ]
+    };
+
+    const pc = new RTCPeerConnection(config);
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    let iceCandidateBuffer = [];
+    let hasRemoteDescription = false;
+    let isCallActive = false;
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(stream => {
+        localVideo.srcObject = stream;
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      })
+      .catch(err => alert("Ошибка камеры: " + err));
+
+    pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+
+    async function sendSignalPayload(payload) {
+      const msg = Object.assign({}, payload, { room: ROOM, from: CLIENT_ID });
+      try {
+        await fetch(SIGNAL_URL + '/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(msg)
+        });
       } catch (e) {
-        console.error("Receive error:", e);
-        // небольшая пауза перед повтором
-        await new Promise(r => setTimeout(r, 1500));
+        console.error('Send failed', e);
       }
     }
-  }
 
-  pc.onicecandidate = e => {
-    if (e.candidate) {
-      sendSignalPayload({ type: 'candidate', candidate: e.candidate });
-    }
-  };
-
-  receiveLoop();
-
-  window.createOffer = async () => {
-    if (!isCaller) {
-      alert("Ты не можешь звонить. Открой страницу с ?call\n\nПример: " + 
-            window.location.origin + window.location.pathname + `?room=${ROOM}&call`);
-      return;
+    function flushIceCandidates() {
+      iceCandidateBuffer.forEach(async candidate => {
+        try { await pc.addIceCandidate(candidate); } 
+        catch (e) { console.error("ICE candidate error:", e); }
+      });
+      iceCandidateBuffer = [];
     }
 
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await sendSignalPayload({ type: offer.type, sdp: offer.sdp });
-      console.log("✅ Offer sent");
-    } catch (e) {
-      console.error("Ошибка при создании вызова:", e);
-      alert("Не удалось начать вызов: " + e.message);
-    }
-  };
+    async function receiveLoop() {
+      while (true) {
+        try {
+          const res = await fetch(`${SIGNAL_URL}/receive?room=${encodeURIComponent(ROOM)}&clientId=${encodeURIComponent(CLIENT_ID)}`);
+          if (res.status === 200) {
+            const msg = await res.json();
 
-  window.endCall = () => {
-    if (localVideo.srcObject) {
-      localVideo.srcObject.getTracks().forEach(track => track.stop());
-      localVideo.srcObject = null;
+            if (msg.type === 'offer') {
+              if (isCallActive) continue;
+              isCallActive = true;
+              await pc.setRemoteDescription({ type: msg.type, sdp: msg.sdp });
+              hasRemoteDescription = true;
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              await sendSignalPayload({ type: answer.type, sdp: answer.sdp });
+              flushIceCandidates();
+            } else if (msg.type === 'answer') {
+              if (isCallActive) continue;
+              isCallActive = true;
+              await pc.setRemoteDescription({ type: msg.type, sdp: msg.sdp });
+              hasRemoteDescription = true;
+              flushIceCandidates();
+            } else if (msg.type === 'candidate') {
+              if (hasRemoteDescription) {
+                await pc.addIceCandidate(msg.candidate);
+              } else {
+                iceCandidateBuffer.push(msg.candidate);
+              }
+            } else {
+              console.log('Unknown message:', msg);
+            }
+          } else if (res.status === 204) {
+            // long polling timeout
+          } else {
+            console.warn('Receive unexpected status', res.status);
+          }
+        } catch (e) {
+          console.error("Receive error:", e);
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
     }
-    remoteVideo.srcObject = null;
-    if (pc) pc.close();
-    isCallActive = false;
-    console.log("📞 Call ended");
-    alert("Звонок завершён");
-  };
-</script>
 
-  
+    pc.onicecandidate = e => {
+      if (e.candidate) {
+        sendSignalPayload({ type: 'candidate', candidate: e.candidate });
+      }
+    };
+
+    receiveLoop();
+
+    window.createOffer = async () => {
+      if (!isCaller) {
+        alert("Ты не можешь звонить. Открой страницу с ?call\n\nПример: " + 
+              window.location.origin + window.location.pathname + `?room=${ROOM}&call`);
+        return;
+      }
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendSignalPayload({ type: offer.type, sdp: offer.sdp });
+        console.log("✅ Offer sent");
+      } catch (e) {
+        console.error("Ошибка при создании вызова:", e);
+        alert("Не удалось начать вызов: " + e.message);
+      }
+    };
+
+    window.endCall = () => {
+      if (localVideo.srcObject) {
+        localVideo.srcObject.getTracks().forEach(track => track.stop());
+        localVideo.srcObject = null;
+      }
+      remoteVideo.srcObject = null;
+      if (pc) pc.close();
+      isCallActive = false;
+      console.log("📞 Call ended");
+      alert("Звонок завершён");
+    };
+  </script>
 </body>
-
 </html>
-
-
-
-
-
-
-
-
-
-

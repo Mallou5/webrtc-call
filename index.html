@@ -124,14 +124,14 @@
 
     // --- Theme handling ---
     function setTheme(theme) {
-      if (theme === "white") {
-        document.body.style.background = "#ffffff";
-        document.body.style.color = "#000000";
-        renderQR("#000000", "#ffffff");
-      } else if (theme === "darkgray") {
+      if (theme === "darkgray") {
         document.body.style.background = "#2b2b2b";
         document.body.style.color = "#ffffff";
         renderQR("#ffffff", "#2b2b2b");
+      } else if (theme === "white") {
+        document.body.style.background = "#ffffff";
+        document.body.style.color = "#000000";
+        renderQR("#000000", "#ffffff");
       } else if (theme === "black") {
         document.body.style.background = "#000000";
         document.body.style.color = "#ffffff";
@@ -301,4 +301,5 @@
   </script>
 </body>
 </html>
+
 

@@ -7,17 +7,17 @@
     body {
       font-family: Arial, sans-serif;
       text-align: center;
-      background: #f2f2f2;
       margin: 0;
       padding: 20px;
+      transition: background 0.3s, color 0.3s;
     }
     video {
       width: 45%;
-      border: 2px solid #333;
+      border: 2px solid currentColor;
       border-radius: 8px;
       margin: 5px;
     }
-    button {
+    button, select {
       margin: 6px;
       padding: 8px 14px;
       font-size: 14px;
@@ -26,10 +26,9 @@
     #inviteBox {
       margin: 15px auto;
       padding: 12px;
-      border: 1px solid #ccc;
-      background: #fff;
+      border: 1px solid currentColor;
+      background: inherit;
       max-width: 700px;
-      display: block;
       text-align: left;
       border-radius: 8px;
     }
@@ -43,9 +42,12 @@
       flex: 1;
       padding: 6px;
       font-size: 13px;
+      border: 1px solid currentColor;
+      background: inherit;
+      color: inherit;
     }
     .muted {
-      color: #666;
+      opacity: 0.8;
       font-size: 13px;
     }
     #qrcode {
@@ -57,6 +59,15 @@
 </head>
 <body>
   <h2>WebRTC Видеозвонок</h2>
+
+  <div>
+    <label for="theme">🎨 Тема: </label>
+    <select id="theme" onchange="setTheme(this.value)">
+      <option value="white">Белая</option>
+      <option value="darkgray">Тёмно-серая</option>
+      <option value="black">Чёрная</option>
+    </select>
+  </div>
 
   <div id="inviteBox">
     <p class="muted">Отправь эту ссылку другу или покажи QR-код. Друг откроет её и будет ждать звонка.</p>
@@ -81,11 +92,11 @@
   </div>
 
   <script>
+    // --- Room/URL ---
     const urlParams = new URLSearchParams(window.location.search);
     let ROOM = urlParams.get('room');
     let isCaller = urlParams.has('call');
 
-    // Если нет комнаты → значит звонящий зашёл без параметров
     if (!ROOM) {
       ROOM = Math.random().toString(36).slice(2, 8);
       const callerUrl = `${window.location.origin}${window.location.pathname}?room=${ROOM}&call`;
@@ -93,19 +104,45 @@
       isCaller = true;
     }
 
-    // Ссылки для участника и звонящего
     const baseRoomUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(ROOM)}`;
     const callerUrl = `${baseRoomUrl}&call`;
 
-    // Заполняем поле и генерим QR-код для участника
     document.getElementById('inviteLink').value = baseRoomUrl;
-    new QRCode(document.getElementById("qrcode"), {
-      text: baseRoomUrl,
-      width: 180,
-      height: 180
-    });
 
-    // Копирование в буфер
+    let qr;
+    function renderQR(fg = "#000", bg = "#fff") {
+      const qrBox = document.getElementById("qrcode");
+      qrBox.innerHTML = "";
+      qr = new QRCode(qrBox, {
+        text: baseRoomUrl,
+        width: 180,
+        height: 180,
+        colorDark: fg,
+        colorLight: bg
+      });
+    }
+
+    // --- Theme handling ---
+    function setTheme(theme) {
+      if (theme === "white") {
+        document.body.style.background = "#ffffff";
+        document.body.style.color = "#000000";
+        renderQR("#000000", "#ffffff");
+      } else if (theme === "darkgray") {
+        document.body.style.background = "#2b2b2b";
+        document.body.style.color = "#ffffff";
+        renderQR("#ffffff", "#2b2b2b");
+      } else if (theme === "black") {
+        document.body.style.background = "#000000";
+        document.body.style.color = "#ffffff";
+        renderQR("#ffffff", "#000000");
+      }
+    }
+
+    // Установим белую тему по умолчанию
+    setTheme("darkgray");
+
+    // --- Copy link ---
     function copyInvite() {
       const txt = document.getElementById('inviteLink').value;
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -130,7 +167,8 @@
       document.body.removeChild(ta);
     }
 
-    const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com'; // твой сервер
+    // --- WebRTC ---
+    const SIGNAL_URL = 'https://webrtc-signal-78yj.onrender.com';
     const CLIENT_ID = Math.random().toString(36).slice(2);
 
     const config = {
